@@ -107,7 +107,7 @@ function fmtName(f){const x=FMTS.find(y=>y[0]===f);return x?x[1]:f;}
 function findBook(id){return S.books.find(b=>b.id===id);}
 function isOwned(b){return (b.copies||[]).length>0;}
 function isFinished(b){return (b.copies||[]).some(c=>c.finishedAt);}
-function inProgress(b){return (b.copies||[]).some(c=>!c.finishedAt&&(c.progress||0)>0);}
+function inProgress(b){return (b.copies||[]).some(c=>!c.finishedAt&&c.progressKnown!==false&&(c.progress||0)>0);}
 function today(){const d=new Date();return [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');}
 function badges(b){
   let h='';
@@ -142,7 +142,7 @@ function vLibrary(){
   h+='<input class="search" id="q" placeholder="Search title or author…" value="'+esc(UI.q)+'">';
   h+='<div class="chips">'+[['all','All'],['own','Own'],['finished','Finished'],['audio','Audio'],['ebook','Ebook'],['print','Print']].map(c=>'<button class="chip'+(UI.filter===c[0]?' on':'')+'" data-filter="'+c[0]+'">'+c[1]+'</button>').join('')+'</div>';
   if(!books.length)h+='<div class="empty">No books here yet. Add your first one from the Add book tab.</div>';
-  if(cur.length){h+='<span class="lbl">Currently reading</span>';for(const b of cur){const c=b.copies.find(x=>!x.finishedAt&&(x.progress||0)>0);h+=bookRow(b,'<div class="bar"><div style="width:'+(c.progress||0)+'%"></div></div><span class="pct">'+(c.progress||0)+'% · '+fmtName(c.format).toLowerCase()+'</span>');}}
+  if(cur.length){h+='<span class="lbl">Currently reading</span>';for(const b of cur){const c=b.copies.find(x=>!x.finishedAt&&x.progressKnown!==false&&(x.progress||0)>0);h+=bookRow(b,'<div class="bar"><div style="width:'+(c.progress||0)+'%"></div></div><span class="pct">'+(c.progress||0)+'% · '+fmtName(c.format).toLowerCase()+'</span>');}}
   if(shelf.length){h+='<span class="lbl">On the shelf</span>';for(const b of shelf)h+=bookRow(b,b.rating?'<div class="stars">'+starStr(b.rating)+'</div>':'');}
   if(fin.length){h+='<span class="lbl">Finished</span>';for(const b of fin){const d=b.copies.filter(c=>c.finishedAt).map(c=>c.finishedAt).sort().pop();h+=bookRow(b,'<span class="pct">finished '+esc(d)+(b.rating?' · '+'★'.repeat(b.rating):'')+'</span>');}}
   return h;
@@ -203,7 +203,7 @@ function vDetail(){
     if(c){
       h+='<div class="fmtrow"><b><span class="dot" style="background:var(--'+(f[0]==='audio'?'audio':f[0])+')"></span>'+f[1]+'</b>'+(c.finishedAt?'<span class="own">Finished '+esc(c.finishedAt)+'</span>':'<span class="own">Owned</span>')+'</div>';
       if(!c.finishedAt){
-        h+='<div style="margin:-2px 14px 8px"><div class="bar"><div style="width:'+(c.progress||0)+'%"></div></div><div class="stepper"><button data-prog="'+f[0]+':-10">−</button><span>'+(c.progress||0)+'%</span><button data-prog="'+f[0]+':10">+</button><button class="btn small ghost" data-finish="'+f[0]+'" style="margin-left:auto">Mark finished</button></div></div>';
+        h+='<div style="margin:-2px 14px 8px"><div class="bar"><div style="width:'+(c.progress||0)+'%"></div></div><div class="stepper"><button data-prog="'+f[0]+':-10">−</button><span>'+(c.progressKnown===false?'Unknown':(c.progress||0)+'%')+'</span><button data-prog="'+f[0]+':10">+</button><button class="btn small ghost" data-finish="'+f[0]+'" style="margin-left:auto">Mark finished</button></div></div>';
       }else{
         h+='<div style="margin:-2px 14px 8px"><button class="btn small ghost" data-unfinish="'+f[0]+'">Not finished after all</button><button class="addlink" data-delcopy="'+f[0]+'" style="margin-left:12px">remove copy</button></div>';
       }
@@ -217,7 +217,7 @@ function vDetail(){
   if(UI.edit==='sum'){
     h+='<div class="field"><textarea id="sumtext">'+esc(b.overview||'')+'</textarea><div class="hint">Saved as your own summary. Keep source details if adapting another summary.</div></div><div class="row" style="margin-top:0"><button class="btn small accent" id="savesum">Save</button><button class="btn small ghost" data-canceledit>Cancel</button></div>';
   }else if(b.overview){
-    h+='<div class="card"><p>'+esc(b.overview)+'</p><div class="fn">'+(b.overviewSource==='openlibrary'?'Open Library description (not a verified full summary)':'Your summary')+' · <button class="addlink" data-edit="sum">Edit</button></div></div>';
+    h+='<div class="card"><p>'+esc(b.overview)+'</p><div class="fn">'+(b.overviewSource==='openlibrary'?'Open Library description (not a verified full summary)':b.overviewSource==='source-pilot'?'Pilot summary from supplied source':'Your summary')+' · <button class="addlink" data-edit="sum">Edit</button></div></div>';
   }else{
     h+='<div class="card"><p style="color:var(--muted);font-style:italic">No overview yet.</p><div class="fn"><button class="addlink" data-edit="sum">Write one</button>'+(b.olid?' · <button class="addlink" data-fetchsum>Fetch from Open Library</button>':'')+'</div></div>';
   }
@@ -226,7 +226,7 @@ function vDetail(){
   h+='<span class="lbl">Chapter summary &amp; takeaways</span><p class="hint" style="margin-bottom:8px">Preview: sourced deep-summary delivery is still in development. Editions and abridged audio may have different chapters.</p>';
   const gated=!isFinished(b)&&!UI.spoiler[b.id];
   if(gated){
-    h+='<div class="spoiler"><p>May contain spoilers - you have not finished this book yet.</p><button class="btn small ghost" data-reveal="'+b.id+'">Show anyway</button></div>';
+    h+='<div class="spoiler"><p>May contain spoilers - completion has not been recorded for this book.</p><button class="btn small ghost" data-reveal="'+b.id+'">Show anyway</button></div>';
   }else if(UI.edit==='det'){
     const d=b.detailed||{};
     h+='<div class="field"><label>Chapter-by-chapter</label><textarea id="dettext">'+esc(d.chapters||'')+'</textarea></div>';
@@ -335,9 +335,9 @@ document.getElementById('app').addEventListener('click',async e=>{
   if(el.id==='sbnow'||el.id==='sbrestore'){if(!LibrarySharedBackup.configured()){toast('Save your access key first');return;}el.disabled=true;sbMessage='Connecting…';const status=document.getElementById('sbstatus');if(status)status.textContent=sbMessage;try{if(el.id==='sbnow'){if(!S.books.length)throw Error('Add a book before creating a shared backup.');await LibrarySharedBackup.save('library',{schema:'library.v1',books:S.books});sbMessage='Backup saved successfully.';}else{const r=await LibrarySharedBackup.load('library');if(!validBackup(r.object))throw Error('This is not a valid Library backup. Nothing changed.');if(!confirm('Add missing books and formats from your Library backup? Existing notes and progress stay unchanged.')){sbMessage='Restore cancelled.';}else{downloadBackup(S,'before-shared-restore');const n=mergeMissing(r.object.books);save();sbMessage='Restore complete: '+n+' missing books added. Existing records kept.';}}}catch(e){sbMessage=e.message||'Backup connection failed.';}render();return;}
   if(!b)return;
   if(el.dataset.rate){b.rating=b.rating===+el.dataset.rate?0:+el.dataset.rate;save();render();return;}
-  if(el.dataset.prog){const[f,d]=el.dataset.prog.split(':');const c=b.copies.find(x=>x.format===f);if(c){c.progress=Math.max(0,Math.min(100,(c.progress||0)+ +d));if(c.progress===100){c.finishedAt=today();}save();render();}return;}
-  if(el.dataset.finish){const c=b.copies.find(x=>x.format===el.dataset.finish);if(c){c.progress=100;c.finishedAt=today();save();render();toast('Marked finished');}return;}
-  if(el.dataset.unfinish){const c=b.copies.find(x=>x.format===el.dataset.unfinish);if(c){c.finishedAt='';c.progress=0;save();render();}return;}
+  if(el.dataset.prog){const[f,d]=el.dataset.prog.split(':');const c=b.copies.find(x=>x.format===f);if(c){c.progressKnown=true;c.progress=Math.max(0,Math.min(100,(c.progress||0)+ +d));if(c.progress===100){c.finishedAt=today();}save();render();}return;}
+  if(el.dataset.finish){const c=b.copies.find(x=>x.format===el.dataset.finish);if(c){c.progressKnown=true;c.progress=100;c.finishedAt=today();save();render();toast('Marked finished');}return;}
+  if(el.dataset.unfinish){const c=b.copies.find(x=>x.format===el.dataset.unfinish);if(c){c.progressKnown=true;c.finishedAt='';c.progress=0;save();render();}return;}
   if(el.dataset.addcopy){b.copies=b.copies||[];b.copies.push({format:el.dataset.addcopy,progress:0,finishedAt:''});b.want=(b.want||[]).filter(w=>w!==el.dataset.addcopy);save();render();toast(fmtName(el.dataset.addcopy)+' copy added');return;}
   if(el.dataset.delcopy){b.copies=(b.copies||[]).filter(c=>c.format!==el.dataset.delcopy);save();render();return;}
   if(el.dataset.wantfmt){if((b.copies||[]).some(c=>c.format===el.dataset.wantfmt)){toast('You already own this format');return;}b.want=b.want||[];const i=b.want.indexOf(el.dataset.wantfmt);if(i>=0)b.want.splice(i,1);else b.want.push(el.dataset.wantfmt);save();render();return;}
@@ -395,9 +395,9 @@ const LibrarySharedBackup = (() => {
     async call(path, init = {}) {
       let res;
       try { res = await fetch(api.url() + path, Object.assign({}, init, { headers: Object.assign({ Authorization: 'Bearer ' + api.token() }, init.body ? { 'Content-Type': 'application/json' } : {}), signal: AbortSignal.timeout(45000) })); }
-      catch (e) { throw new Error('Could not reach the Pocket CRM service. Check the signal and the address.'); }
+      catch (e) { throw new Error('Could not reach the shared backup service. Check your connection.'); }
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(res.status === 401 ? 'The access token is wrong. Use the same token as Pocket CRM.' : (data.error || 'The service said no (' + res.status + ').'));
+      if (!res.ok) throw new Error(res.status === 401 ? 'The access key was rejected. Use the same shared-backup key as your other apps.' : (data.error || 'The service said no (' + res.status + ').'));
       return data;
     },
     async save(app, obj) {

@@ -1,0 +1,5 @@
+const CACHE='library-shell-20261111-phone1';
+const SHELL=['./','./index.html','./4-manifest.webmanifest','./2-icon-192.png','./3-icon-512.png'];
+self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(SHELL)));self.skipWaiting();});
+self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('library-shell-')&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim()));});
+self.addEventListener('fetch',e=>{if(e.request.method!=='GET'||new URL(e.request.url).origin!==self.location.origin)return;const url=new URL(e.request.url);if(!url.pathname.startsWith('/library-app/'))return;e.respondWith(fetch(e.request).then(r=>{if(r.ok&&SHELL.some(p=>new URL(p,self.registration.scope).pathname===url.pathname)){const clone=r.clone();caches.open(CACHE).then(c=>c.put(e.request,clone));}return r;}).catch(async()=>{const c=await caches.open(CACHE);return(await c.match(e.request,{ignoreSearch:true}))||(e.request.mode==='navigate'?await c.match('./index.html'):null)||Response.error();}));});

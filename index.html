@@ -220,19 +220,22 @@ function vDetail(){
     }
   }
   h+='<span class="lbl">Want to read as</span><div class="chips" style="margin-bottom:14px">'+FMTS.map(f=>'<button class="chip'+((b.want||[]).includes(f[0])?' on':'')+'" data-wantfmt="'+f[0]+'">'+f[1]+'</button>').join('')+'</div>';
-  if(b.sourceGuides&&b.sourceGuides.length){h+='<span class="lbl">Supplied source guides</span><p class="hint">Stored separately from your own summaries and notes. Read the edition and coverage before using.</p>';for(const g of b.sourceGuides){const pr=g.provenance||{};h+='<div class="card"><h2>'+esc(g.title||'Source guide')+'</h2><p class="hint">'+esc([pr.sourceLabel,pr.edition,pr.coverage,pr.preparedAt].filter(Boolean).join(' · '))+'</p><p>'+esc(g.overview||'')+'</p>';if(!isFinished(b)&&!UI.spoiler[b.id])h+='<p class="hint">Chapter guide may contain spoilers. Completion has not been recorded.</p><button class="btn small ghost" data-reveal="'+b.id+'">Show chapter guide</button>';else h+='<details><summary style="padding:12px 0;cursor:pointer">Chapter guide &amp; takeaways</summary><p>'+esc(g.chapters||'')+'</p><h2>Key takeaways</h2><p>'+esc(g.takeaways||'')+'</p></details>';h+='<p class="hint">'+esc(g.note||'')+'</p>';for(const ref of g.references||[])if(/^https:\/\//.test(ref.url||''))h+='<p class="hint"><a href="'+esc(ref.url)+'" target="_blank" rel="noopener noreferrer">'+esc(ref.label||'Reference')+'</a> · '+esc(ref.scope||'')+'</p>';h+='</div>';}}
+  const G=(b.sourceGuides||[])[0]||null;
   /* overview summary */
   h+='<span class="lbl">Overview</span>';
   if(UI.edit==='sum'){
     h+='<div class="field"><textarea id="sumtext">'+esc(b.overview||'')+'</textarea><div class="hint">Saved as your own summary. Keep source details if adapting another summary.</div></div><div class="row" style="margin-top:0"><button class="btn small accent" id="savesum">Save</button><button class="btn small ghost" data-canceledit>Cancel</button></div>';
   }else if(b.overview){
-    h+='<div class="card"><p>'+esc(b.overview)+'</p><div class="fn">'+(b.overviewSource==='openlibrary'?'Open Library description (not a verified full summary)':b.overviewSource==='source-pilot'?'Pilot summary from supplied source':'Your summary')+' · <button class="addlink" data-edit="sum">Edit</button></div></div>';
+    h+='<div class="card"><p>'+esc(b.overview)+'</p><div class="fn">'+(b.overviewSource==='openlibrary'?'Open Library description (not a verified full summary)':b.overviewSource==='source-pilot'?'Pilot summary from supplied source':'Your summary')+' · <button class="addlink" data-edit="sum">Edit</button></div></div>'+(G&&G.overview?'<details class="card"><summary style="cursor:pointer">Supplied source guide overview</summary><p>'+esc(G.overview)+'</p></details>':'');
+  }else if(G&&G.overview){
+    const pr=G.provenance||{};
+    h+='<div class="card"><p>'+esc(G.overview)+'</p><div class="fn">Supplied source guide'+(pr.edition?' · '+esc(pr.edition):'')+' · <button class="addlink" data-edit="sum">Write your own</button></div></div>';
   }else{
     h+='<div class="card"><p style="color:var(--muted);font-style:italic">No overview yet.</p><div class="fn"><button class="addlink" data-edit="sum">Write one</button>'+(b.olid?' · <button class="addlink" data-fetchsum>Fetch from Open Library</button>':'')+'</div></div>';
   }
   if(b.overviewProvenance&&b.overviewSource==='openlibrary')h+='<p class="hint" style="margin-bottom:12px"><a target="_blank" rel="noopener noreferrer" href="'+esc(b.overviewProvenance.url)+'">Source record</a> · '+esc(b.overviewProvenance.scope)+' · retrieved '+esc(b.overviewProvenance.fetchedAt.slice(0,10))+'</p>';
   /* detailed summary, spoiler-aware */
-  h+='<span class="lbl">Chapter summary &amp; takeaways</span><p class="hint" style="margin-bottom:8px">Preview: sourced deep-summary delivery is still in development. Editions and abridged audio may have different chapters.</p>';
+  h+='<span class="lbl">Chapter summary &amp; takeaways</span>'+(G&&(G.chapters||G.takeaways)?'<p class="hint" style="margin-bottom:8px">Includes a supplied source guide for the edition recorded in its source details. Other editions and abridged audio may have different chapters.</p>':'<p class="hint" style="margin-bottom:8px">Preview: sourced deep-summary delivery is still in development. Editions and abridged audio may have different chapters.</p>');
   const gated=!isFinished(b)&&!UI.spoiler[b.id];
   if(gated){
     h+='<div class="spoiler"><p>May contain spoilers - completion has not been recorded for this book.</p><button class="btn small ghost" data-reveal="'+b.id+'">Show anyway</button></div>';
@@ -243,15 +246,23 @@ function vDetail(){
     h+='<div class="row" style="margin-top:0"><button class="btn small accent" id="savedet">Save</button><button class="btn small ghost" data-canceledit>Cancel</button></div>';
   }else{
     const d=b.detailed||{};
+    const own=!!(d.chapters||d.takeaways),gd=G&&(G.chapters||G.takeaways)?G:null;
+    if(!own&&gd){
+      if(gd.chapters)h+='<div class="card"><div class="fn" style="border:none;margin:0;padding:0 0 6px">Chapter-by-chapter · supplied source guide</div><p>'+esc(gd.chapters)+'</p></div>';
+      if(gd.takeaways)h+='<div class="card"><div class="fn" style="border:none;margin:0;padding:0 0 6px">Key takeaways · supplied source guide</div><p>'+esc(gd.takeaways)+'</p></div>';
+      h+='<div class="row" style="margin:0 0 8px"><button class="btn small ghost" data-edit="det">Write your own instead</button></div>';
+    }
     if(d.provenance)h+='<p class="hint">Summary provenance: '+esc(d.provenance.sourceLabel||'Source unspecified')+' · '+esc(d.provenance.edition||'Edition unverified')+' · '+esc(d.provenance.coverage||'Coverage unverified')+'</p>';
     if(d.chapters||d.takeaways){
       if(d.chapters)h+='<div class="card"><div class="fn" style="border:none;margin:0;padding:0 0 6px">Chapter-by-chapter</div><p>'+esc(d.chapters)+'</p></div>';
       if(d.takeaways)h+='<div class="card"><div class="fn" style="border:none;margin:0;padding:0 0 6px">Key takeaways</div><p>'+esc(d.takeaways)+'</p></div>';
       h+='<div class="row" style="margin:0 0 8px"><button class="btn small ghost" data-edit="det">Edit</button></div>';
-    }else{
+    }else if(!gd){
       h+='<div class="card"><p style="color:var(--muted);font-style:italic">Detailed summaries are not connected yet. Reliable chapter summaries need checked source material for your edition; they will not be guessed from a title or description. You can save your own notes here in the meantime.</p><div class="fn"><button class="addlink" data-edit="det">Add</button></div></div>';
     }
+    if(own&&gd&&(gd.chapters!==d.chapters||gd.takeaways!==d.takeaways))h+='<details class="card"><summary style="cursor:pointer">Supplied source guide chapters &amp; takeaways</summary><p>'+esc(gd.chapters||'')+'</p><h2>Key takeaways</h2><p>'+esc(gd.takeaways||'')+'</p></details>';
   }
+  if(G){h+='<details class="card"><summary style="cursor:pointer">Source guide details</summary><p class="hint">Stored separately from your own summaries and notes. Read the edition and coverage before using.</p>';for(const g of b.sourceGuides){const pr=g.provenance||{};h+='<p><b>'+esc(g.title||'Source guide')+'</b></p><p class="hint">'+esc([pr.sourceLabel,pr.edition,pr.coverage,pr.preparedAt].filter(Boolean).join(' · '))+'</p><p class="hint">'+esc(g.note||'')+'</p>';for(const ref of g.references||[])if(/^https:\/\//.test(ref.url||''))h+='<p class="hint"><a href="'+esc(ref.url)+'" target="_blank" rel="noopener noreferrer">'+esc(ref.label||'Reference')+'</a> · '+esc(ref.scope||'')+'</p>';}h+='</details>';}
   /* notes */
   h+='<span class="lbl">My notes</span>';
   if(UI.edit==='notes'){

@@ -136,6 +136,7 @@ function matchFilter(b){
   const f=UI.filter;
   if(f==='own'&&!isOwned(b))return false;
   if(f==='finished'&&!isFinished(b))return false;
+  if(f==='upnext'&&!isUpNext(b))return false;
   if((f==='audio'||f==='ebook'||f==='print')&&!(b.copies||[]).some(c=>c.format===f)&&!(b.want||[]).includes(f))return false;
   if(UI.genre==='__none'&&b.genre)return false;
   if(UI.genre&&UI.genre!=='__none'&&b.genre!==UI.genre)return false;
@@ -150,16 +151,16 @@ function bookRow(b,extra){
 function byTitle(a,b){return a.title.trim().localeCompare(b.title.trim(),'en',{sensitivity:'base',numeric:true})||(a.author||'').localeCompare(b.author||'','en',{sensitivity:'base'});}
 function vLibrary(){
   const books=S.books.filter(isOwned).filter(matchFilter).sort(byTitle);
-  const cur=books.filter(isReading);
-  const nxt=books.filter(isUpNext);
   const fin=books.filter(b=>isFinished(b)&&!inProgress(b));
-  const shelf=books.filter(b=>!isReading(b)&&!isUpNext(b)&&!isFinished(b));
+  const cur=books.filter(b=>!fin.includes(b)&&(inProgress(b)||b.reading===true));
+  const nxt=books.filter(b=>!fin.includes(b)&&!cur.includes(b)&&isUpNext(b));
+  const shelf=books.filter(b=>!fin.includes(b)&&!cur.includes(b)&&!nxt.includes(b));
   let h='<h1>Library</h1><p class="sub">'+S.books.filter(isOwned).length+' owned · '+S.books.filter(b=>(b.want||[]).length).length+' want to read</p>';
   h+='<input class="search" id="q" placeholder="Search title or author…" value="'+esc(UI.q)+'">';
-  h+='<div class="chips">'+[['all','All'],['own','Own'],['finished','Finished'],['audio','Audio'],['ebook','Ebook'],['print','Print']].map(c=>'<button class="chip'+(UI.filter===c[0]?' on':'')+'" data-filter="'+c[0]+'">'+c[1]+'</button>').join('')+'</div>';
+  h+='<div class="chips">'+[['all','All'],['own','Own'],['finished','Finished'],['upnext','Up next'],['audio','Audio'],['ebook','Ebook'],['print','Print']].map(c=>'<button class="chip'+(UI.filter===c[0]?' on':'')+'" data-filter="'+c[0]+'">'+c[1]+'</button>').join('')+'</div>';
   const gl=genreList();
   if(gl.length)h+='<div class="field" style="margin:4px 0 6px"><label for="genresel">Type</label><select id="genresel" style="width:100%;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:14px"><option value="">All types</option>'+gl.map(g=>'<option value="'+esc(g)+'"'+(UI.genre===g?' selected':'')+'>'+esc(g)+'</option>').join('')+'<option value="__none"'+(UI.genre==='__none'?' selected':'')+'>Unsorted</option></select></div>';
-  if(!books.length)h+='<div class="empty">No books here yet. Add your first one from the Add book tab.</div>';
+  if(!books.length)h+=UI.filter!=='all'||UI.q||UI.genre?'<div class="empty">No books match this view.</div>':'<div class="empty">No books here yet. Add your first one from the Add book tab.</div>';
   if(cur.length){h+='<span class="lbl">Currently reading</span>';for(const b of cur){const c=(b.copies||[]).find(x=>!x.finishedAt&&x.progressKnown!==false&&(x.progress||0)>0);h+=bookRow(b,c?'<div class="bar"><div style="width:'+(c.progress||0)+'%"></div></div><span class="pct">'+(c.progress||0)+'% · '+fmtName(c.format).toLowerCase()+'</span>':'<span class="pct">Reading now · progress not recorded</span>');}}
   if(nxt.length){h+='<span class="lbl">Up next</span>';for(const b of nxt)h+=bookRow(b,'');}
   if(shelf.length){h+='<span class="lbl">On the shelf</span>';for(const b of shelf)h+=bookRow(b,b.rating?'<div class="stars">'+starStr(b.rating)+'</div>':'');}
@@ -478,3 +479,4 @@ LibrarySharedBackup.auto('library',()=>S.books.length?{schema:'library.v1',books
 </script>
 </body>
 </html>
+

@@ -146,8 +146,10 @@ function bookRow(b,extra){
   return '<button class="book" data-open="'+b.id+'">'+coverHtml(b)+'<div style="flex:1;min-width:0"><b>'+esc(b.title)+'</b><span class="au">'+esc(b.author||'')+(b.genre?' · '+esc(b.genre):'')+'</span><div class="fmts">'+badges(b)+'</div>'+(extra||'')+'</div></button>';
 }
 
+// Sort view copies only: never reorder or rewrite the stored collection.
+function byTitle(a,b){return a.title.trim().localeCompare(b.title.trim(),'en',{sensitivity:'base',numeric:true})||(a.author||'').localeCompare(b.author||'','en',{sensitivity:'base'});}
 function vLibrary(){
-  const books=S.books.filter(isOwned).filter(matchFilter);
+  const books=S.books.filter(isOwned).filter(matchFilter).sort(byTitle);
   const cur=books.filter(isReading);
   const nxt=books.filter(isUpNext);
   const fin=books.filter(b=>isFinished(b)&&!inProgress(b));
@@ -165,7 +167,7 @@ function vLibrary(){
   return h;
 }
 function vWant(){
-  const books=S.books.filter(b=>(b.want||[]).length).filter(matchFilter);
+  const books=S.books.filter(b=>(b.want||[]).length).filter(matchFilter).sort(byTitle);
   let h='<h1>Want to read</h1><p class="sub">'+books.length+' book'+(books.length===1?'':'s')+' · with the format you would actually buy</p>';
   if(!books.length)h+='<div class="empty">Nothing on the wishlist. When you add a book, pick "want" formats instead of owned copies.</div>';
   for(const b of books)h+=bookRow(b);

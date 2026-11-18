@@ -508,7 +508,7 @@ const LibrarySharedBackup = (() => {
 
 
 let sbMessage='';
-function mergeMissing(incoming){let added=0;for(const b of incoming){const old=S.books.find(x=>sameWork(x,b)&&compatibleEdition(x,b));if(!old){const copy=JSON.parse(JSON.stringify(b));copy.id=uid();S.books.push(copy);added++;}else{for(const c of b.copies)if(!old.copies.some(x=>x.format===c.format))old.copies.push(c);old.want=[...new Set([...(old.want||[]),...(b.want||[])])].filter(f=>!old.copies.some(c=>c.format===f));}}return added;}
+function mergeMissing(incoming){let added=0;for(const b of incoming){const old=S.books.find(x=>x.id===b.id)||S.books.find(x=>sameWork(x,b)&&compatibleEdition(x,b));if(!old){const copy=JSON.parse(JSON.stringify(b));S.books.push(copy);added++;}else{for(const c of b.copies)if(!old.copies.some(x=>x.format===c.format))old.copies.push(c);old.want=[...new Set([...(old.want||[]),...(b.want||[])])].filter(f=>!old.copies.some(c=>c.format===f));}}return added;}
 // Retry only this idempotent manual export, never other app writes.
 async function libraryExportRequest(book, label){
   let last;

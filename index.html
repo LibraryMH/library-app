@@ -507,7 +507,7 @@ async function libraryExportRequest(book, label){
     const status=document.getElementById('sbstatus');
     if(status)status.textContent=label+(attempt?' · retry '+attempt+' of 2':'')+' · keep this page open…';
     try{const r=await LibrarySharedBackup.call('/backup/library-export',{method:'POST',body:JSON.stringify({books:[book]})});if(['books_created','books_updated','books_unchanged'].reduce((n,k)=>n+(Number.isInteger(r[k])?r[k]:0),0)!==1||['takeaways_created','takeaways_updated','takeaways_unchanged'].reduce((n,k)=>n+(Number.isInteger(r[k])?r[k]:0),0)!==book.ideas.length){const err=new Error('The service response did not confirm this part.');err.retryable=true;throw err;}return r;}
-    catch(e){last=e;if(!e.retryable)throw new Error(label+': '+e.message);if(attempt<2)await new Promise(r=>setTimeout(r,(attempt+1)*2000));}
+    catch(e){last=e;if(!e.retryable)throw new Error(label+': '+e.message);if(attempt<2){const wait=65000;if(status)status.textContent=label+' · waiting '+Math.round(wait/1000)+' seconds before retry '+(attempt+1)+' of 2…';await new Promise(r=>setTimeout(r,wait));}}
   }
   throw new Error(label+': '+(last.message||'request failed')+' Automatic retries stopped.');
 }

@@ -475,13 +475,22 @@ const LibrarySharedBackup = (() => {
       let res;
       try { res = await fetch(api.url() + path, Object.assign({}, init, { headers: Object.assign({ Authorization: 'Bearer ' + api.token() }, init.body ? { 'Content-Type': 'application/json' } : {}), signal: AbortSignal.timeout(path==='/backup/library-export'?90000:45000) })); }
       catch (e) { const err=new Error(e.name==='TimeoutError'?'The service did not respond within '+(path==='/backup/library-export'?'90':'45')+' seconds.':'The browser could not complete the service request ('+(e.name||'transport error')+').');err.retryable=true;throw err; }
-      let data;try{data=await res.json();}catch{if(path==='/backup/library-export'){const err=new Error('The service returned an incomplete response (HTTP '+res.status+').');err.retryable=true;throw err;}data={};}
-      if (!res.ok) {const err=new Error(res.status === 401 ? 'The access key was rejected. Use the same shared-backup key as your other apps.' : (data.error || 'The service said no (HTTP ' + res.status + ').'));err.retryable=[429,502,503,504].includes(res.status);throw err;}
+      let data;try{data=await res.json();}catch{if(path.startsWith('/backup/library-')){const err=new Error('The service returned an incomplete response (HTTP '+res.status+').');err.retryable=true;throw err;}data={};}
+      if (!res.ok) {const err=new Error(res.status === 401 ? 'The access key was rejected. Use the same shared-backup key as your other apps.' : (data.error || 'The service said no (HTTP ' + res.status + ').'));err.retryable=[429,502,503,504,529].includes(res.status);err.retryAfter=Number(data.retry_after||res.headers.get('Retry-After'))||0;throw err;}
       return data;
     },
     async save(app, obj) {
       const data = await api.pack(obj);
-      const res = await api.call('/backup/save', { method: 'POST', body: JSON.stringify({ app, data, device: api.device() }) });
+      let res;
+      if(app==='library'){
+        const hash=await libraryDigest(data),count=Math.ceil(data.length/160000);
+        if(count>32)throw Error('Library backup exceeds the supported 5.12 million encoded characters. Export a local backup; nothing has been replaced.');
+        const post=(step,body,label)=>librarySafeCall('/backup/library-upload/'+step,{method:'POST',body:JSON.stringify(body)},label);
+        const upload=await post('start',{hash,length:data.length,count,device:api.device()},'Preparing full Library backup');
+        if(!upload.id||!Array.isArray(upload.received))throw Error('Incomplete backup preparation response.');
+        for(let i=0;i<count;i++)if(!upload.received.includes(i)){const r=await post('part',{id:upload.id,i,data:data.slice(i*160000,(i+1)*160000)},'Backing up part '+(i+1)+' of '+count);if(r.received!==i&&!r.complete)throw Error('Backup part was not confirmed. Previous backups are unchanged.');}
+        res=await post('commit',{id:upload.id},'Verifying complete Library backup');if(res.hash!==hash||!res.backup)throw Error('Backup completion was not verified.');
+      }else res=await api.call('/backup/save',{method:'POST',body:JSON.stringify({app,data,device:api.device()})});
       set(K.last, String(Date.now()));
       return res.backup;
     },
@@ -507,17 +516,26 @@ async function libraryExportRequest(book, label){
     const status=document.getElementById('sbstatus');
     if(status)status.textContent=label+(attempt?' · retry '+attempt+' of 2':'')+' · keep this page open…';
     try{const r=await LibrarySharedBackup.call('/backup/library-export',{method:'POST',body:JSON.stringify({books:[book]})});if(['books_created','books_updated','books_unchanged'].reduce((n,k)=>n+(Number.isInteger(r[k])?r[k]:0),0)!==1||['takeaways_created','takeaways_updated','takeaways_unchanged'].reduce((n,k)=>n+(Number.isInteger(r[k])?r[k]:0),0)!==book.ideas.length){const err=new Error('The service response did not confirm this part.');err.retryable=true;throw err;}return r;}
-    catch(e){last=e;if(!e.retryable)throw new Error(label+': '+e.message);if(attempt<2){const wait=65000;if(status)status.textContent=label+' · waiting '+Math.round(wait/1000)+' seconds before retry '+(attempt+1)+' of 2…';await new Promise(r=>setTimeout(r,wait));}}
+    catch(e){last=e;if(!e.retryable)throw new Error(label+': '+e.message);if(attempt<2){const wait=Math.max(65000,(e.retryAfter||0)*1000);if(status)status.textContent=label+' · waiting '+Math.round(wait/1000)+' seconds before retry '+(attempt+1)+' of 2…';await new Promise(r=>setTimeout(r,wait));}}
   }
   throw new Error(label+': '+(last.message||'request failed')+' Automatic retries stopped.');
 }
+async function libraryDigest(s){return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s)))).map(x=>x.toString(16).padStart(2,'0')).join('');}
+async function librarySafeCall(path,init,label){
+  for(let attempt=0;attempt<3;attempt++){
+    const status=document.getElementById('sbstatus');if(status)status.textContent=label+' · keep this page open…';
+    try{return await LibrarySharedBackup.call(path,init);}catch(e){if(!e.retryable||attempt===2)throw new Error(label+': '+e.message);const wait=Math.max(65,e.retryAfter||0);if(status)status.textContent=label+' · service paused, retrying after '+wait+' seconds…';await new Promise(r=>setTimeout(r,wait*1000));}
+  }
+}
+async function libraryRemoteStatus(kind){const rows=[],seen=new Set();let cursor='';do{if(seen.has(cursor))throw Error('Repeated status cursor.');seen.add(cursor);const r=await librarySafeCall('/backup/library-export/status?kind='+kind+(cursor?'&cursor='+encodeURIComponent(cursor):''),{},'Checking Notion '+kind);if(!Array.isArray(r.rows))throw Error('Incomplete Notion status.');rows.push(...r.rows);cursor=r.next_cursor||'';if(seen.size>200)throw Error('Notion status exceeded the supported collection size.');}while(cursor);const keyed=new Map();for(const r of rows)if(r.key){if(keyed.has(r.key))throw Error('Duplicate Notion source keys. No automatic merge attempted.');keyed.set(r.key,r);}return keyed;}
 async function libraryRunExport(books){
-  const total={books_created:0,books_updated:0,books_unchanged:0,takeaways_created:0,takeaways_updated:0,takeaways_unchanged:0};
-  const chunks=[];for(let i=0;i<books.length;i++){const b=books[i],parts=Math.max(1,Math.ceil(b.ideas.length/5));for(let j=0;j<parts;j++)chunks.push({book:{...b,ideas:b.ideas.slice(j*5,j*5+5)},label:'Book '+(i+1)+' of '+books.length+', part '+(j+1)+' of '+parts});}
-  // A checkpoint resumes only identical data and never triggers export on its own.
-  let signature='',next=0;try{signature=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(books))))).map(x=>x.toString(16).padStart(2,'0')).join('');const cp=JSON.parse(localStorage.getItem('library-notion-export-progress')||'null');if(cp&&cp.signature===signature&&Number.isInteger(cp.next)&&cp.next>=0&&cp.next<=chunks.length&&Object.keys(total).every(k=>Number.isInteger(cp.total?.[k])&&cp.total[k]>=0)){next=cp.next;Object.assign(total,cp.total);}}catch{}
-  for(;next<chunks.length;next++){const c=chunks[next],r=await libraryExportRequest(c.book,c.label);for(const k of Object.keys(total))total[k]+=r[k]||0;if(signature)try{localStorage.setItem('library-notion-export-progress',JSON.stringify({signature,next:next+1,total}));}catch{}}
-  try{localStorage.removeItem('library-notion-export-progress');}catch{}return total;
+  let remote=await libraryRemoteStatus('books');const target='https://librarymh.github.io/library-app/#book=';
+  for(let i=0;i<books.length;i++){const b=books[i],old=remote.get(b.id),hash=await libraryDigest(JSON.stringify([b.title,b.author,[...b.formats].sort(),b.status,b.notes]));if(!old||old.hash!==hash||old.link!==target+b.id)await libraryExportRequest({...b,ideas:[]},'Book '+(i+1)+' of '+books.length);}
+  remote=await libraryRemoteStatus('books');const ideas=await libraryRemoteStatus('ideas');
+  for(let i=0;i<books.length;i++){const b=books[i],old=remote.get(b.id);if(!old)throw Error('Notion did not confirm book '+(i+1));const missing=[];for(const idea of b.ideas){const r=ideas.get(idea.key),hash=await libraryDigest(JSON.stringify([idea.text,old.id,'Supplied guide',idea.text.slice(0,1000)]));if(!r||r.hash!==hash||r.link!==target+b.id)missing.push(idea);}for(let j=0;j<missing.length;j+=5)await libraryExportRequest({...b,ideas:missing.slice(j,j+5)},'Book '+(i+1)+' of '+books.length+', changed takeaways '+(j+1)+'-'+Math.min(j+5,missing.length));}
+  const finalBooks=await libraryRemoteStatus('books'),finalIdeas=await libraryRemoteStatus('ideas');let count=0;
+  for(const b of books){const p=finalBooks.get(b.id);if(!p||p.hash!==await libraryDigest(JSON.stringify([b.title,b.author,[...b.formats].sort(),b.status,b.notes]))||p.link!==target+b.id)throw Error('Final book verification failed. Earlier writes are kept.');for(const idea of b.ideas){const r=finalIdeas.get(idea.key);if(!r||r.hash!==await libraryDigest(JSON.stringify([idea.text,p.id,'Supplied guide',idea.text.slice(0,1000)]))||r.link!==target+b.id)throw Error('Final takeaway verification failed. Earlier writes are kept.');count++;}}
+  return {takeaways_created:0,takeaways_updated:0,takeaways_unchanged:count};
 }
 function libraryExportBooks(){return S.books.map(b=>({id:b.id,title:b.title,author:b.author||'',formats:[...new Set((b.copies||[]).map(c=>c.format))],status:(b.copies||[]).some(c=>c.finishedAt||c.progress===100)?'Finished':(b.copies||[]).some(c=>c.progress>0)?'Reading':'',notes:/^Import note:/i.test(b.notes||'')?'':b.notes||'',ideas:(b.sourceGuides||[]).flatMap((g,gi)=>String(g.takeaways||'').split(/\n/).map(t=>t.replace(/^\s*\d+[.)]\s*/, '').trim()).filter(Boolean).map((text,i)=>({key:b.id+'.'+String(g.id||gi).replace(/[^a-zA-Z0-9_.:-]/g,'_').slice(0,60)+'.'+i,text})))}));}
 function openLinkedBook(){const m=/^#book=([a-zA-Z0-9_-]+)$/.exec(location.hash);if(!m)return;const b=findBook(m[1]);if(b){UI.detail=b.id;UI.edit=null;render();window.scrollTo(0,0);}else toast('This book is not imported in this browser. Import your Library backup first.');}

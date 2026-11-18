@@ -133,6 +133,23 @@ function coverHtml(b){
   return '<div class="cover" style="background:hsl('+hue+',32%,42%)">'+esc((b.title||'?')[0])+'</div>';
 }
 function starStr(n){let s='';for(let i=1;i<=5;i++)s+=i<=n?'★':'☆';return s;}
+// Content search stays on this device and respects the existing spoiler gate.
+function searchableSections(b){
+  const fields=[['Title',b.title],['Author',b.author],['My notes',b.notes],['Overview',b.overview]];
+  const revealed=isFinished(b)||UI.spoiler[b.id];
+  if(revealed){fields.push(['Chapter summary',(b.detailed||{}).chapters],['Key takeaways',(b.detailed||{}).takeaways]);}
+  for(const g of b.sourceGuides||[]){fields.push(['Overview',g.overview]);if(revealed){fields.push(['Chapter summary',g.chapters],['Key takeaways',g.takeaways]);}}
+  return fields.filter(x=>typeof x[1]==='string'&&x[1].trim());
+}
+function contentMatches(b){const q=(UI.q||'').trim().toLocaleLowerCase();return q?searchableSections(b).filter(x=>x[1].toLocaleLowerCase().includes(q)):[];}
+function searchSnippet(b){
+  if(!(UI.q||'').trim())return '';
+  const matches=contentMatches(b);if(!matches.length)return '';
+  const m=matches.find(x=>!['Title','Author'].includes(x[0]))||matches[0],i=m[1].toLocaleLowerCase().indexOf(UI.q.trim().toLocaleLowerCase());
+  const start=Math.max(0,i-45),end=Math.min(m[1].length,i+UI.q.trim().length+95);
+  return '<span class="pct" style="display:block;white-space:normal;margin-top:6px">'+esc(m[0])+': '+esc((start?'...':'')+m[1].slice(start,end)+(end<m[1].length?'...':''))+'</span>';
+}
+function bookDeepLink(b){return location.origin+location.pathname+'#book='+encodeURIComponent(b.id);}
 function matchFilter(b){
   const f=UI.filter;
   if(f==='own'&&!isOwned(b))return false;
@@ -141,11 +158,11 @@ function matchFilter(b){
   if((f==='audio'||f==='ebook'||f==='print')&&!(b.copies||[]).some(c=>c.format===f)&&!(b.want||[]).includes(f))return false;
   if(UI.genre==='__none'&&b.genre)return false;
   if(UI.genre&&UI.genre!=='__none'&&b.genre!==UI.genre)return false;
-  if(UI.q){const q=UI.q.toLowerCase();if(!(b.title||'').toLowerCase().includes(q)&&!(b.author||'').toLowerCase().includes(q))return false;}
+  if((UI.q||'').trim()&&!contentMatches(b).length)return false;
   return true;
 }
 function bookRow(b,extra){
-  return '<button class="book" data-open="'+b.id+'">'+coverHtml(b)+'<div style="flex:1;min-width:0"><b>'+esc(b.title)+'</b><span class="au">'+esc(b.author||'')+(b.genre?' · '+esc(b.genre):'')+'</span><div class="fmts">'+badges(b)+'</div>'+(extra||'')+'</div></button>';
+  return '<button class="book" data-open="'+b.id+'" data-search-section="'+esc((contentMatches(b).find(x=>!['Title','Author'].includes(x[0]))||[''])[0])+'">'+coverHtml(b)+'<div style="flex:1;min-width:0"><b>'+esc(b.title)+'</b><span class="au">'+esc(b.author||'')+(b.genre?' · '+esc(b.genre):'')+'</span><div class="fmts">'+badges(b)+'</div>'+searchSnippet(b)+(extra||'')+'</div></button>';
 }
 
 // Sort view copies only: never reorder or rewrite the stored collection.
@@ -157,10 +174,11 @@ function vLibrary(){
   const nxt=books.filter(b=>!fin.includes(b)&&!cur.includes(b)&&isUpNext(b));
   const shelf=books.filter(b=>!fin.includes(b)&&!cur.includes(b)&&!nxt.includes(b));
   let h='<h1>Library</h1><p class="sub">'+S.books.filter(isOwned).length+' owned · '+S.books.filter(b=>(b.want||[]).length).length+' want to read</p>';
-  h+='<input class="search" id="q" placeholder="Search title or author…" value="'+esc(UI.q)+'">';
+  h+='<input class="search" id="q" placeholder="Search titles, notes and takeaways…" value="'+esc(UI.q)+'">';
   h+='<div class="chips">'+[['all','All'],['own','Own'],['finished','Finished'],['upnext','Up next'],['audio','Audio'],['ebook','Ebook'],['print','Print']].map(c=>'<button class="chip'+(UI.filter===c[0]?' on':'')+'" data-filter="'+c[0]+'">'+c[1]+'</button>').join('')+'</div>';
   const gl=genreList();
   if(gl.length)h+='<div class="field" style="margin:4px 0 6px"><label for="genresel">Type</label><select id="genresel" style="width:100%;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:14px"><option value="">All types</option>'+gl.map(g=>'<option value="'+esc(g)+'"'+(UI.genre===g?' selected':'')+'>'+esc(g)+'</option>').join('')+'<option value="__none"'+(UI.genre==='__none'?' selected':'')+'>Unsorted</option></select></div>';
+  if((UI.q||'').trim())h+='<p class="hint">Searches notes, overviews and revealed takeaways/chapter summaries. Unfinished-book spoilers stay hidden until you choose Show anyway.</p>';
   if(!books.length)h+=UI.filter!=='all'||UI.q||UI.genre?'<div class="empty">No books match this view.</div>':'<div class="empty">No books here yet. Add your first one from the Add book tab.</div>';
   if(cur.length){h+='<span class="lbl">Currently reading</span>';for(const b of cur){const c=(b.copies||[]).find(x=>!x.finishedAt&&x.progressKnown!==false&&(x.progress||0)>0);h+=bookRow(b,c?'<div class="bar"><div style="width:'+(c.progress||0)+'%"></div></div><span class="pct">'+(c.progress||0)+'% · '+fmtName(c.format).toLowerCase()+'</span>':'<span class="pct">Reading now · progress not recorded</span>');}}
   if(nxt.length){h+='<span class="lbl">Up next</span>';for(const b of nxt)h+=bookRow(b,'<span class="startread" data-start="'+b.id+'">Start reading</span>');}
@@ -241,7 +259,7 @@ function vDetail(){
   h+='<span class="lbl">Type</span><div class="field"><input id="genreinput" list="genrelist" placeholder="e.g. Biography &amp; memoir" maxlength="40" value="'+esc(b.genre||'')+'"><datalist id="genrelist">'+[...new Set(GENRE_PRESETS.concat(genreList()))].map(g=>'<option value="'+esc(g)+'">').join('')+'</datalist><div class="hint">Your own label. Leave empty for Unsorted.</div></div>';
   const G=(b.sourceGuides||[])[0]||null;
   /* overview summary */
-  h+='<span class="lbl">Overview</span>';
+  h+='<span class="lbl" id="search-overview">Overview</span>';
   if(UI.edit==='sum'){
     h+='<div class="field"><textarea id="sumtext">'+esc(b.overview||'')+'</textarea><div class="hint">Saved as your own summary. Keep source details if adapting another summary.</div></div><div class="row" style="margin-top:0"><button class="btn small accent" id="savesum">Save</button><button class="btn small ghost" data-canceledit>Cancel</button></div>';
   }else if(b.overview){
@@ -254,7 +272,7 @@ function vDetail(){
   }
   if(b.overviewProvenance&&b.overviewSource==='openlibrary')h+='<p class="hint" style="margin-bottom:12px"><a target="_blank" rel="noopener noreferrer" href="'+esc(b.overviewProvenance.url)+'">Source record</a> · '+esc(b.overviewProvenance.scope)+' · retrieved '+esc(b.overviewProvenance.fetchedAt.slice(0,10))+'</p>';
   /* detailed summary, spoiler-aware */
-  h+='<span class="lbl">Chapter summary &amp; takeaways</span>'+(G&&(G.chapters||G.takeaways)?'<p class="hint" style="margin-bottom:8px">Includes a supplied source guide for the edition recorded in its source details. Other editions and abridged audio may have different chapters.</p>':'<p class="hint" style="margin-bottom:8px">Preview: sourced deep-summary delivery is still in development. Editions and abridged audio may have different chapters.</p>');
+  h+='<span class="lbl" id="search-takeaways">Chapter summary &amp; takeaways</span>'+(G&&(G.chapters||G.takeaways)?'<p class="hint" style="margin-bottom:8px">Includes a supplied source guide for the edition recorded in its source details. Other editions and abridged audio may have different chapters.</p>':'<p class="hint" style="margin-bottom:8px">Preview: sourced deep-summary delivery is still in development. Editions and abridged audio may have different chapters.</p>');
   const gated=!isFinished(b)&&!UI.spoiler[b.id];
   if(gated){
     h+='<div class="spoiler"><p>May contain spoilers - completion has not been recorded for this book.</p><button class="btn small ghost" data-reveal="'+b.id+'">Show anyway</button></div>';
@@ -283,7 +301,7 @@ function vDetail(){
   }
   if(G){h+='<details class="card"><summary style="cursor:pointer">Source guide details</summary><p class="hint">Stored separately from your own summaries and notes. Read the edition and coverage before using.</p>';for(const g of b.sourceGuides){const pr=g.provenance||{};h+='<p><b>'+esc(g.title||'Source guide')+'</b></p><p class="hint">'+esc([pr.sourceLabel,pr.edition,pr.coverage,pr.preparedAt].filter(Boolean).join(' · '))+'</p><p class="hint">'+esc(g.note||'')+'</p>';for(const ref of g.references||[])if(/^https:\/\//.test(ref.url||''))h+='<p class="hint"><a href="'+esc(ref.url)+'" target="_blank" rel="noopener noreferrer">'+esc(ref.label||'Reference')+'</a> · '+esc(ref.scope||'')+'</p>';}h+='</details>';}
   /* notes */
-  h+='<span class="lbl">My notes</span>';
+  h+='<span class="lbl" id="search-notes">My notes</span>';
   if(UI.edit==='notes'){
     h+='<div class="field"><textarea id="notetext">'+esc(b.notes||'')+'</textarea></div><div class="row" style="margin-top:0"><button class="btn small accent" id="savenotes">Save</button><button class="btn small ghost" data-canceledit>Cancel</button></div>';
   }else{
@@ -314,7 +332,7 @@ function val(id){const e=document.getElementById(id);return e?e.value.trim():'';
 function render(){
   const app=document.getElementById('app');
   let h='';
-  if(UI.detail)h=vDetail();
+  if(UI.detail){h=vDetail();const b=findBook(UI.detail);if(b&&UI.q.trim())h='<div class="card" role="status"><b>Search match</b>'+searchSnippet(b)+'</div>'+h;}
   else if(UI.tab==='want')h=vWant();
   else if(UI.tab==='add')h=vAdd();
   else if(UI.tab==='settings')h=vSettings();
@@ -326,6 +344,7 @@ document.querySelector('.tabs').addEventListener('click',e=>{
   const t=e.target.closest('[data-tab]');if(!t)return;
   UI.tab=t.dataset.tab;UI.detail=null;UI.edit=null;UI.filter='all';render();window.scrollTo(0,0);
 });
+document.getElementById('app').addEventListener('click',e=>{const hit=e.target.closest('[data-open][data-search-section]');if(!hit||!UI.q.trim())return;const section=hit.dataset.searchSection;setTimeout(()=>{const id=section==='My notes'?'search-notes':section==='Overview'?'search-overview':/takeaways|Chapter/.test(section)?'search-takeaways':'';document.getElementById(id)?.scrollIntoView({block:'start'});},0);});
 document.getElementById('app').addEventListener('input',e=>{
   if(e.target.id==='q'){UI.q=e.target.value;render();const q=document.getElementById('q');q.focus();q.setSelectionRange(q.value.length,q.value.length);}
 });
@@ -474,11 +493,13 @@ const LibrarySharedBackup = (() => {
 
 let sbMessage='';
 function mergeMissing(incoming){let added=0;for(const b of incoming){const old=S.books.find(x=>sameWork(x,b)&&compatibleEdition(x,b));if(!old){const copy=JSON.parse(JSON.stringify(b));copy.id=uid();S.books.push(copy);added++;}else{for(const c of b.copies)if(!old.copies.some(x=>x.format===c.format))old.copies.push(c);old.want=[...new Set([...(old.want||[]),...(b.want||[])])].filter(f=>!old.copies.some(c=>c.format===f));}}return added;}
+function openLinkedBook(){const m=/^#book=([a-zA-Z0-9_-]+)$/.exec(location.hash);if(!m)return;const b=findBook(m[1]);if(b){UI.detail=b.id;UI.edit=null;render();window.scrollTo(0,0);}else toast('This book is not imported in this browser. Import your Library backup first.');}
+window.addEventListener('hashchange',openLinkedBook);
 if(location.hash==='#inventory'){UI.tab='settings';UI.pasteOpen=true;}
 render();
 if('serviceWorker' in navigator)navigator.serviceWorker.register('./5-sw.js',{scope:'./'}).catch(()=>{});
+openLinkedBook();
 LibrarySharedBackup.auto('library',()=>S.books.length?{schema:'library.v1',books:S.books}:null).then(ok=>{if(ok)sbMessage='Automatic backup saved successfully.';});
 </script>
 </body>
 </html>
-

@@ -1,4 +1,4 @@
-const CACHE='library-shell-20261118-search1';
+const CACHE='library-shell-20261118-export1';
 const SHELL=['./','./index.html','./4-manifest.webmanifest','./2-icon-192.png','./3-icon-512.png'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(SHELL)));self.skipWaiting();});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('library-shell-')&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim()));});
